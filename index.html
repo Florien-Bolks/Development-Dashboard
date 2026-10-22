@@ -1,90 +1,333 @@
+
 <!doctype html>
 <html lang="nl">
 <head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Mijn trainingsdashboard</title>
-<style>
-:root{color-scheme:dark;--bg:#0b1020;--panel:#141c2f;--line:#27334d;--muted:#9eabc3;--text:#edf2ff}
-*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:15px/1.5 system-ui,-apple-system,Segoe UI,sans-serif}
-main{max-width:1180px;margin:auto;padding:28px 18px 60px}header{display:flex;justify-content:space-between;gap:16px;align-items:center;flex-wrap:wrap;margin-bottom:24px}
-h1{font-size:clamp(1.6rem,4vw,2.3rem);margin:0}h2{font-size:1.05rem;margin:0 0 14px}.muted{color:var(--muted)}
-.controls,.panel,.metric{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:16px}.controls{display:flex;gap:10px;align-items:end;flex-wrap:wrap;margin-bottom:18px}.field{display:flex;flex-direction:column;gap:5px;min-width:180px;flex:1}
-input,button{font:inherit;border-radius:9px;padding:10px 12px;border:1px solid var(--line);background:#0d1425;color:var(--text)}button{cursor:pointer;background:#d7eaff;color:#10203a;font-weight:700;border:0}button:disabled{opacity:.5;cursor:wait}
-.metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:14px}.metric .label{color:var(--muted);font-size:.85rem}.metric .value{font-size:1.65rem;font-weight:750;margin-top:5px}
-.grid{display:grid;grid-template-columns:1.2fr 1fr;gap:14px}.panel{min-width:0}.wide{grid-column:1/-1}canvas{display:block;width:100%;height:260px}.status{min-height:24px;margin:6px 0 14px;color:var(--muted)}
-table{width:100%;border-collapse:collapse;font-size:.9rem}th,td{text-align:left;padding:10px 8px;border-bottom:1px solid var(--line)}th{color:var(--muted);font-weight:600}.table-wrap{overflow:auto}.notice{font-size:.88rem;color:var(--muted);margin-top:18px}
-@media(max-width:760px){.metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.grid{grid-template-columns:1fr}.wide{grid-column:auto}.metric .value{font-size:1.35rem}}
-</style></head>
-<body><main>
-<header><div><h1>Trainingsdashboard</h1><div class="muted">Persoonlijke analyse · Intervals.icu</div></div><div class="muted" id="lastUpdated">Nog niet gesynchroniseerd</div></header>
-<section class="controls">
-<label class="field">Beveiligingswachtwoord<input id="password" type="password" autocomplete="current-password" placeholder="Wachtwoord voor data-API"></label>
-<label class="field">Worker-URL<input id="workerUrl" type="url" value="https://development-dashboard-api.florien.workers.dev" placeholder="https://jouw-worker.workers.dev"></label>
-<button id="loadBtn">Synchroniseer</button></section>
-<div id="status" class="status">Vul het wachtwoord voor je beveiligde Worker in en klik op Synchroniseer.</div>
-<section class="metrics">
-<div class="metric"><div class="label">Activiteiten geladen</div><div class="value" id="activitiesCount">—</div></div>
-<div class="metric"><div class="label">Trainingsuren (periode)</div><div class="value" id="hours">—</div></div>
-<div class="metric"><div class="label">Gem. vermogen*</div><div class="value" id="avgPower">—</div></div>
-<div class="metric"><div class="label">Gem. hartslag*</div><div class="value" id="avgHr">—</div></div></section>
-<section class="grid">
-<article class="panel"><h2>Dagelijkse trainingsduur</h2><canvas id="durationChart" width="800" height="300"></canvas></article>
-<article class="panel"><h2>Dagelijkse trainingsbelasting</h2><canvas id="loadChart" width="800" height="300"></canvas><div class="muted">Trainingsbelasting per activiteit, indien beschikbaar.</div></article>
-<article class="panel wide"><h2>Recente activiteiten</h2><div class="table-wrap"><table><thead><tr><th>Datum</th><th>Activiteit</th><th>Duur</th><th>Afstand</th><th>Vermogen</th><th>Hartslag</th><th>TSS / belasting</th></tr></thead><tbody id="activitiesTable"><tr><td colspan="7" class="muted">Nog geen data geladen.</td></tr></tbody></table></div></article></section>
-<p class="notice">* Gemiddelden worden berekend over activiteiten waarvoor de API deze waarden aanlevert; dit is geen gewogen gemiddelde. Dit dashboard gebruikt samenvattingsgegevens, geen ruwe seconde-voor-seconde vermogensbestanden. Bewaar de API-sleutel uitsluitend als Worker-secret, nooit in deze HTML of GitHub.</p>
-</main>
-<script>
-const $=id=>document.getElementById(id);let busy=false;
-function fmt(n,d=0){return Number.isFinite(Number(n))?Number(n).toLocaleString('nl-NL',{maximumFractionDigits:d}):'—'}
-function first(o,keys){for(const k of keys){if(o?.[k]!==undefined&&o[k]!==null&&o[k]!==''&&Number.isFinite(Number(o[k])))return Number(o[k])}return null}
-function dateOf(a){return (a.start_date_local||a.start_date||'').slice(0,10)}
-function draw(id,labels,values,color){
- const c=$(id),ctx=c.getContext('2d'),w=c.width,h=c.height;ctx.clearRect(0,0,w,h);ctx.font='13px system-ui';
- const pad={l:42,r:12,t:18,b:34},cw=w-pad.l-pad.r,ch=h-pad.t-pad.b,max=Math.max(...values,1);
- ctx.strokeStyle='#27334d';ctx.fillStyle='#9eabc3';ctx.lineWidth=1;
- for(let i=0;i<=4;i++){let y=pad.t+ch*i/4;ctx.beginPath();ctx.moveTo(pad.l,y);ctx.lineTo(w-pad.r,y);ctx.stroke();ctx.fillText(fmt(max*(4-i)/4),4,y+4)}
- if(!values.length){ctx.fillText('Geen gegevens',pad.l+10,pad.t+30);return}
- const step=cw/values.length,bw=Math.max(2,step*.62);
- values.forEach((v,i)=>{const bh=Math.max(1,v/max*ch),x=pad.l+i*step+(step-bw)/2,y=pad.t+ch-bh;ctx.fillStyle=color;ctx.fillRect(x,y,bw,bh)});
- const stride=Math.max(1,Math.ceil(labels.length/7));labels.forEach((l,i)=>{if(i%stride===0||i===labels.length-1){ctx.fillStyle='#9eabc3';ctx.fillText(l.slice(5),pad.l+i*step,pad.t+ch+23)}})
-}
-function duration(a){return first(a,['moving_time','elapsed_time','icu_moving_time'])||0}
-function render(activities){
- activities.sort((a,b)=>dateOf(a).localeCompare(dateOf(b)));
- $('activitiesCount').textContent=fmt(activities.length);
- $('hours').textContent=fmt(activities.reduce((s,a)=>s+duration(a),0)/3600,1);
- const powers=activities.map(a=>first(a,['average_watts','icu_average_watts','average_power','avg_power'])).filter(v=>v!==null);
- $('avgPower').textContent=powers.length?fmt(powers.reduce((s,v)=>s+v,0)/powers.length)+' W':'—';
- const hrs=activities.map(a=>first(a,['average_heartrate','average_hr','avg_hr'])).filter(v=>v!==null);
- $('avgHr').textContent=hrs.length?fmt(hrs.reduce((s,v)=>s+v,0)/hrs.length)+' bpm':'—';
- const byDay={};activities.forEach(a=>{const d=dateOf(a);if(!d)return;byDay[d]??={secs:0,load:0};byDay[d].secs+=duration(a);byDay[d].load+=first(a,['icu_training_load','training_load','tss'])||0});
- const days=Object.keys(byDay).sort().slice(-42);draw('durationChart',days,days.map(d=>byDay[d].secs/3600),'#8bc5ff');draw('loadChart',days,days.map(d=>byDay[d].load),'#9ee6b3');
- const rows=[...activities].reverse().slice(0,30);
- $('activitiesTable').innerHTML=rows.map(a=>{
-  const p=first(a,['average_watts','icu_average_watts','average_power','avg_power']),hr=first(a,['average_heartrate','average_hr','avg_hr']),dist=first(a,['distance','icu_distance']),secs=duration(a);
-  const name=String(a.name||a.type||'Activiteit').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-  return `<tr><td>${dateOf(a)||'—'}</td><td>${name}</td><td>${fmt(secs/60)} min</td><td>${dist===null?'—':fmt(dist/1000,1)+' km'}</td><td>${p===null?'—':fmt(p)+' W'}</td><td>${hr===null?'—':fmt(hr)+' bpm'}</td><td>${fmt(first(a,['icu_training_load','training_load','tss']))}</td></tr>`
- }).join('')||'<tr><td colspan="7">Geen activiteiten gevonden.</td></tr>';
-}
-async function sync(){
- if(busy)return;
- const url=$('workerUrl').value.trim().replace(/\/$/,''),password=$('password').value;
- if(!url||!password){$('status').textContent='Vul zowel de Worker-URL als het wachtwoord in.';return}
- if(!/^https:\/\//i.test(url)){$('status').textContent='Gebruik een HTTPS-URL.';return}
- busy=true;$('loadBtn').disabled=true;$('status').textContent='Gegevens ophalen…';
- try{
-  const r=await fetch(url+'/api/activities?days=180',{method:'GET',headers:{'X-Dashboard-Password':password}});
-  let data;try{data=await r.json()}catch{throw new Error('De Worker stuurde geen geldige JSON terug.')}
-  if(!r.ok){if(r.status===401)throw new Error('Wachtwoord onjuist (401).');throw new Error(`API-fout (${r.status}). ${data?.error||''}`)}
-  // Worker returns { success:true, count:number, days:number, activities:[...] }
-  if(!data||data.success!==true||!Array.isArray(data.activities)){
-   throw new Error('Onverwacht API-formaat: verwachtte success:true en activities als array.')
-  }
-  render(data.activities);
-  $('lastUpdated').textContent='Gesynchroniseerd: '+new Date().toLocaleString('nl-NL');
-  $('status').textContent=`${data.activities.length} activiteiten geladen (${data.days??180} dagen).`;
- }catch(e){$('status').textContent='Synchronisatie mislukt: '+(e?.message||'Onbekende fout')}
- finally{busy=false;$('loadBtn').disabled=false}
-}
-$('loadBtn').addEventListener('click',sync);$('password').addEventListener('keydown',e=>{if(e.key==='Enter')sync()});
-</script></body></html>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>Performance Dashboard</title>
+
+  <link rel="stylesheet" href="css/styles.css">
+  <link rel="stylesheet" href="css/components.css">
+  <link rel="stylesheet" href="css/themes.css">
+
+  <script src="https://cdn.jsdelivr.net/npm/lucide@0.468.0/dist/umd/lucide.min.js" defer></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js" defer></script>
+
+  <script src="js/api.js" defer></script>
+  <script src="js/dashboard.js" defer></script>
+  <script src="js/efforts.js" defer></script>
+  <script src="js/races.js" defer></script>
+  <script src="js/fatigue.js" defer></script>
+  <script src="js/recovery.js" defer></script>
+  <script src="js/app.js" defer></script>
+</head>
+<body>
+<div class="app-shell">
+
+  <aside class="sidebar" id="sidebar">
+    <a class="brand" href="#" aria-label="Performance Dashboard">
+      <span class="brand-mark"><i data-lucide="activity"></i></span>
+      <span><strong>Performance</strong><small>CYCLING LAB</small></span>
+    </a>
+
+    <div class="profile-card">
+      <div class="avatar">FB</div>
+      <div class="profile-copy">
+        <strong id="profileName">Florien Bolks</strong>
+        <span id="connectionLabel">Niet verbonden</span>
+      </div>
+      <button class="icon-button" id="openLogin" aria-label="Inloggen">
+        <i data-lucide="user-round"></i>
+      </button>
+    </div>
+
+    <nav class="main-nav" aria-label="Hoofdnavigatie">
+      <span class="nav-label">ANALYSE</span>
+      <button class="nav-item active" data-page="overview">
+        <i data-lucide="layout-dashboard"></i><span>Overzicht</span>
+      </button>
+      <button class="nav-item" data-page="efforts">
+        <i data-lucide="trending-up"></i><span>Best efforts</span>
+      </button>
+      <button class="nav-item" data-page="races">
+        <i data-lucide="flag"></i><span>Koersen</span>
+      </button>
+      <button class="nav-item" data-page="fatigue">
+        <i data-lucide="zap"></i><span>Sprint & vermoeidheid</span>
+      </button>
+      <button class="nav-item" data-page="recovery">
+        <i data-lucide="heart-pulse"></i><span>Belasting & herstel</span>
+      </button>
+    </nav>
+
+    <div class="sidebar-bottom">
+      <div class="privacy-note">
+        <i data-lucide="shield-check"></i>
+        <span>Persoonlijke data via je beveiligde Worker.</span>
+      </div>
+      <button class="nav-item" id="themeToggle">
+        <i data-lucide="moon"></i><span>Donkere modus</span>
+      </button>
+    </div>
+  </aside>
+
+  <main class="main-content">
+    <header class="topbar">
+      <button class="icon-button mobile-menu" id="mobileMenu" aria-label="Menu">
+        <i data-lucide="menu"></i>
+      </button>
+
+      <div class="page-heading">
+        <div class="eyebrow">PERSOONLIJKE PRESTATIEANALYSE</div>
+        <h1 id="pageTitle">Overzicht</h1>
+        <p id="pageSubtitle">Training, prestaties en herstel op één plek.</p>
+      </div>
+
+      <div class="topbar-actions">
+        <span class="sync-label" id="lastUpdated">Nog niet gesynchroniseerd</span>
+        <button class="button button-primary" id="topLogin">
+          <i data-lucide="lock-keyhole"></i><span>Inloggen</span>
+        </button>
+      </div>
+    </header>
+
+    <section class="toolbar">
+      <label class="filter-field">
+        <span>Seizoen</span>
+        <select id="yearFilter">
+          <option value="all">Alle beschikbare jaren</option>
+        </select>
+      </label>
+
+      <label class="filter-field">
+        <span>Trainingsblok</span>
+        <select id="blockFilter">
+          <option value="all">Alle activiteiten</option>
+          <option value="base">Basis / duur</option>
+          <option value="build">Opbouw</option>
+          <option value="race">Wedstrijdperiode</option>
+          <option value="recovery">Herstel</option>
+        </select>
+      </label>
+
+      <div class="toolbar-spacer"></div>
+      <button class="button button-secondary" id="syncButton">
+        <i data-lucide="refresh-cw"></i><span>Synchroniseren</span>
+      </button>
+    </section>
+
+    <div class="notice notice-info" id="statusBanner" role="status">
+      <i data-lucide="info"></i>
+      <span>Log in om je activiteiten uit Intervals.icu te laden.</span>
+    </div>
+
+    <!-- OVERZICHT -->
+    <section class="page-view active" id="page-overview">
+      <div class="metric-grid">
+        <article class="metric-card">
+          <div class="metric-top"><span>Activiteiten</span><span class="metric-icon blue"><i data-lucide="bike"></i></span></div>
+          <strong class="metric-value" id="metricActivities">—</strong>
+          <span class="metric-foot">In geselecteerde periode</span>
+        </article>
+        <article class="metric-card">
+          <div class="metric-top"><span>Trainingsuren</span><span class="metric-icon violet"><i data-lucide="clock-3"></i></span></div>
+          <strong class="metric-value" id="metricHours">—</strong>
+          <span class="metric-foot">Totale activiteitstijd</span>
+        </article>
+        <article class="metric-card">
+          <div class="metric-top"><span>Gem. vermogen</span><span class="metric-icon green"><i data-lucide="gauge"></i></span></div>
+          <strong class="metric-value" id="metricPower">—</strong>
+          <span class="metric-foot">Activiteiten met vermogensdata</span>
+        </article>
+        <article class="metric-card">
+          <div class="metric-top"><span>Gem. hartslag</span><span class="metric-icon orange"><i data-lucide="heart"></i></span></div>
+          <strong class="metric-value" id="metricHr">—</strong>
+          <span class="metric-foot">Activiteiten met hartslagdata</span>
+        </article>
+      </div>
+
+      <div class="content-grid">
+        <article class="panel">
+          <div class="panel-heading">
+            <div><h2>Trainingsduur</h2><p>Dagelijkse trainingsuren</p></div>
+          </div>
+          <div class="chart-area"><canvas id="durationChart"></canvas></div>
+        </article>
+
+        <article class="panel">
+          <div class="panel-heading">
+            <div><h2>Trainingsbelasting</h2><p>Dagelijkse TSS / load</p></div>
+          </div>
+          <div class="chart-area"><canvas id="loadChart"></canvas></div>
+        </article>
+
+        <article class="panel panel-full">
+          <div class="panel-heading">
+            <div><h2>Recente activiteiten</h2><p>Activiteiten uit de geselecteerde periode</p></div>
+            <span class="subtle-tag" id="activityCountTag">0 activiteiten</span>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr>
+                <th>Datum</th><th>Activiteit</th><th>Duur</th>
+                <th>Afstand</th><th>Gem. vermogen</th><th>Hartslag</th><th>TSS / load</th>
+              </tr></thead>
+              <tbody id="activitiesTable">
+                <tr><td colspan="7" class="empty-cell">Log in om gegevens te laden.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <!-- BEST EFFORTS -->
+    <section class="page-view" id="page-efforts">
+      <div class="page-intro">
+        <div><h2>Best efforts</h2><p>Vergelijk je piekvermogen tussen seizoenen en trainingsblokken.</p></div>
+        <span class="subtle-tag">Vermogensdata vereist</span>
+      </div>
+
+      <div class="metric-grid metric-grid-three">
+        <article class="metric-card"><div class="metric-top"><span>Beste 5 seconden</span><span class="metric-icon blue"><i data-lucide="zap"></i></span></div><strong class="metric-value" id="best5s">—</strong><span class="metric-foot">Nog niet berekend</span></article>
+        <article class="metric-card"><div class="metric-top"><span>Beste 1 minuut</span><span class="metric-icon violet"><i data-lucide="timer"></i></span></div><strong class="metric-value" id="best1m">—</strong><span class="metric-foot">Nog niet berekend</span></article>
+        <article class="metric-card"><div class="metric-top"><span>Beste 5 minuten</span><span class="metric-icon green"><i data-lucide="trending-up"></i></span></div><strong class="metric-value" id="best5m">—</strong><span class="metric-foot">Nog niet berekend</span></article>
+      </div>
+
+      <article class="panel panel-full">
+        <div class="panel-heading"><div><h2>Power-duration curve</h2><p>5 s · 10 s · 15 s · 30 s · 1 min · 3 min · 5 min · 10 min · 20 min</p></div></div>
+        <div class="empty-state">
+          <span class="empty-icon"><i data-lucide="chart-no-axes-combined"></i></span>
+          <h3>Best-effortdata is nog niet gekoppeld</h3>
+          <p>De huidige Worker levert activiteitssamenvattingen. Voor echte best efforts hebben we vermogenssamples of de best-effortgegevens van Intervals.icu nodig.</p>
+        </div>
+      </article>
+    </section>
+
+    <!-- KOERSEN -->
+    <section class="page-view" id="page-races">
+      <div class="page-intro">
+        <div><h2>Koersanalyse</h2><p>Sprintprestaties en inspanningen tijdens wedstrijden.</p></div>
+        <span class="subtle-tag">Controleer koersherkenning</span>
+      </div>
+
+      <div class="metric-grid metric-grid-three">
+        <article class="metric-card"><div class="metric-top"><span>Herkende koersen</span><span class="metric-icon blue"><i data-lucide="flag"></i></span></div><strong class="metric-value" id="raceCount">—</strong><span class="metric-foot">Op basis van naam en type</span></article>
+        <article class="metric-card"><div class="metric-top"><span>Koersuren</span><span class="metric-icon violet"><i data-lucide="clock"></i></span></div><strong class="metric-value" id="raceHours">—</strong><span class="metric-foot">Totale duur</span></article>
+        <article class="metric-card"><div class="metric-top"><span>Gem. koersvermogen</span><span class="metric-icon green"><i data-lucide="gauge"></i></span></div><strong class="metric-value" id="racePower">—</strong><span class="metric-foot">Waar beschikbaar</span></article>
+      </div>
+
+      <article class="panel panel-full">
+        <div class="panel-heading"><div><h2>Koersen</h2><p>Activiteiten die voorlopig als koers zijn herkend</p></div></div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Datum</th><th>Koers</th><th>Duur</th><th>Afstand</th><th>Gem. vermogen</th><th>Hartslag</th></tr></thead>
+          <tbody id="racesTable"><tr><td colspan="6" class="empty-cell">Nog geen koersdata geladen.</td></tr></tbody>
+        </table></div>
+      </article>
+      <div class="notice notice-info"><i data-lucide="info"></i><span>Controleer of Intervals.icu je koersen correct labelt. De automatische herkenning is voorlopig.</span></div>
+    </section>
+
+    <!-- SPRINT EN VERMOEIDHEID -->
+    <section class="page-view" id="page-fatigue">
+      <div class="page-intro">
+        <div><h2>Sprint & vermoeidheid</h2><p>Hoe voorafgaande arbeid samenhangt met sprintvermogen.</p></div>
+        <span class="subtle-tag">Vermogensdata vereist</span>
+      </div>
+
+      <div class="content-grid">
+        <article class="panel">
+          <div class="panel-heading"><div><h2>Vergelijkingsinstellingen</h2><p>Voor de sprintanalyse</p></div></div>
+          <div class="settings-list">
+            <label class="filter-field"><span>Sprintduur</span>
+              <select id="sprintDuration"><option value="5">5 seconden</option><option value="10" selected>10 seconden</option><option value="15">15 seconden</option><option value="30">30 seconden</option></select>
+            </label>
+            <label class="filter-field"><span>Vermoeidheidsmaat</span>
+              <select id="fatigueMeasure"><option value="kj">Arbeid vooraf (kJ)</option><option value="kjkg">Arbeid vooraf (kJ/kg)</option><option value="above">Werk boven FTP / CP</option></select>
+            </label>
+          </div>
+          <p class="helper-text">Dit zijn instellingen voor de toekomstige analyse. Er worden nog geen prestaties geschat.</p>
+        </article>
+
+        <article class="panel">
+          <div class="panel-heading"><div><h2>Wat vergelijken we?</h2></div></div>
+          <ul class="clean-list">
+            <li><i data-lucide="check-circle-2"></i> Frisse sprint versus sprint na opgebouwde arbeid</li>
+            <li><i data-lucide="check-circle-2"></i> Vermogensverlies bij 5–30 seconden</li>
+            <li><i data-lucide="check-circle-2"></i> Training versus wedstrijd</li>
+            <li><i data-lucide="check-circle-2"></i> Totale arbeid én intensiteit vooraf</li>
+          </ul>
+        </article>
+
+        <article class="panel panel-full">
+          <div class="panel-heading"><div><h2>Sprintvermogen versus opgebouwde arbeid</h2><p>Bijvoorbeeld 0, 10, 20, 30 en 40 kJ/kg</p></div></div>
+          <div class="empty-state">
+            <span class="empty-icon"><i data-lucide="activity"></i></span>
+            <h3>Analyse wacht op vermogensdata</h3>
+            <p>De arbeid vóór de sprint wordt berekend uit het vermogen over tijd. De sprint zelf telt niet mee in de voorafgaande arbeid.</p>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <!-- BELASTING EN HERSTEL -->
+    <section class="page-view" id="page-recovery">
+      <div class="page-intro">
+        <div><h2>Belasting & herstel</h2><p>Trainingsbelasting en herstel in de dagen erna.</p></div>
+        <span class="subtle-tag">HRV-data controleren</span>
+      </div>
+
+      <div class="metric-grid metric-grid-three">
+        <article class="metric-card"><div class="metric-top"><span>Dagen TSS ≥ 180</span><span class="metric-icon orange"><i data-lucide="flame"></i></span></div><strong class="metric-value" id="heavyDays">—</strong><span class="metric-foot">Op basis van dagelijkse load</span></article>
+        <article class="metric-card"><div class="metric-top"><span>Gemiddelde dagload</span><span class="metric-icon blue"><i data-lucide="bar-chart-3"></i></span></div><strong class="metric-value" id="meanLoad">—</strong><span class="metric-foot">Dagen met activiteiten</span></article>
+        <article class="metric-card"><div class="metric-top"><span>HRV / rusthartslag</span><span class="metric-icon green"><i data-lucide="heart-pulse"></i></span></div><strong class="metric-value">—</strong><span class="metric-foot">Dagmetingen nog niet gekoppeld</span></article>
+      </div>
+
+      <div class="content-grid">
+        <article class="panel">
+          <div class="panel-heading"><div><h2>Belasting per dag</h2><p>Oranje markeert load ≥ 180</p></div></div>
+          <div class="chart-area"><canvas id="recoveryLoadChart"></canvas></div>
+        </article>
+        <article class="panel">
+          <div class="panel-heading"><div><h2>Herstel na zware dag</h2><p>HRV en rusthartslag versus je baseline</p></div></div>
+          <div class="empty-state compact">
+            <span class="empty-icon"><i data-lucide="heart-pulse"></i></span>
+            <h3>HRV-data nog niet gekoppeld</h3>
+            <p>We hebben dagelijkse HRV en rusthartslag nodig om herstel betrouwbaar te analyseren.</p>
+          </div>
+        </article>
+        <article class="panel panel-full">
+          <div class="panel-heading"><div><h2>Voorgestelde herstelperiode</h2></div></div>
+          <div class="recovery-steps">
+            <div><b>−3 tot −1 dagen</b><span>Persoonlijke baseline</span></div>
+            <div><b>Dag 0</b><span>TSS ≥ 180</span></div>
+            <div><b>+1 tot +2 dagen</b><span>HRV, rusthartslag en gevoel</span></div>
+            <div><b>+3 tot +5 dagen</b><span>Terugkeer naar baseline</span></div>
+          </div>
+          <p class="helper-text">TSS 180 is hier een onderzoeksfilter, geen universele fysiologische grens.</p>
+        </article>
+      </div>
+    </section>
+
+    <footer class="app-footer">Performance Dashboard <span>·</span> Intervals.icu <span>·</span> <span id="footerStatus">Niet verbonden</span></footer>
+  </main>
+</div>
+
+<!-- LOGINVENSTER -->
+<dialog class="login-dialog" id="loginDialog">
+  <form method="dialog" class="dialog-close-row">
+    <button class="icon-button" aria-label="Sluiten"><i data-lucide="x"></i></button>
+  </form>
+  <div class="login-brand"><span class="brand-mark"><i data-lucide="activity"></i></span></div>
+  <h2>Welkom terug</h2>
+  <p class="dialog-subtitle">Log in op het dashboard van Florien Bolks.</p>
+  <form id="loginForm">
+    <label class="filter-field"><span>Profiel</span><input value="Florien Bolks" disabled></label>
+    <label class="filter-field"><span>Beveiligingswachtwoord</span><input id="passwordInput" type="password" autocomplete="current-password" placeholder="Worker-wachtwoord" required></label>
+    <button class="button button-primary button-full" id="loginSubmit" type="submit"><i data-lucide="lock-keyhole"></i><span>Inloggen en synchroniseren</span></button>
+    <p class="login-error" id="loginError" hidden></p>
+    <p class="dialog-footnote"><i data-lucide="shield-check"></i> Het wachtwoord wordt niet permanent opgeslagen.</p>
+  </form>
+</dialog>
+</body>
+</html>

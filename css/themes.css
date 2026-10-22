@@ -1,0 +1,71 @@
+
+body.dark-theme {
+    color-scheme: dark;
+    --bg: #0c1220;
+    --surface: #121b2c;
+    --surface-soft: #172237;
+    --text: #eaf0fc;
+    --muted: #98a6bf;
+    --line: #26344d;
+    --primary: #5479f4;
+    --primary-hover: #6d8bff;
+    --shadow: 0 4px 18px rgba(0,0,0,.12);
+  }
+  
+  body.dark-theme .brand-mark {
+    background: #1d2b4c;
+    color: #9db5ff;
+  }
+  
+  body.dark-theme .avatar {
+    background: #27395d;
+    color: #c4d4ff;
+  }
+  
+  body.dark-theme .nav-item {
+    color: #a6b2c8;
+  }
+  
+  body.dark-theme .nav-item.active {
+    background: #1d2c4e;
+    color: #a9beff;
+  }
+  
+  body.dark-theme .notice-info {
+    background: #172745;
+    color: #b8ceff;
+    border-color: #263d67;
+  }
+  
+  body.dark-theme .notice-error {
+    background: #351d28;
+    color: #ffb8c0;
+    border-color: #5a2a39;
+  }
+  
+  body.dark-theme .notice-success {
+    background: #173226;
+    color: #a4e6c1;
+    border-color: #28543e;
+  }
+  
+  body.dark-theme .metric-icon.blue {
+    background: #1d2c4e;
+    color: #9db5ff;
+  }
+  
+  body.dark-theme .metric-icon.violet {
+    background: #2a2144;
+    color: #c4aaff;
+  }
+  
+  body.dark-theme .metric-icon.green {
+    background: #17372e;
+    color: #8ee0b5;
+  }
+  
+  body.dark-theme .metric-icon.orange {
+    background: #3b2b20;
+    color: #ffc18a;
+  }
+  
