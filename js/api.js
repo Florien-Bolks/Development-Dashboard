@@ -7,38 +7,52 @@ window.DashboardAPI = (() => {
     let connected = false;
   
     async function sync(password) {
-      const response = await fetch(
-        `${WORKER_URL}/api/activities?days=180`,
-        {
+      let response;
+  
+      try {
+        response = await fetch(WORKER_URL, {
           method: "GET",
           headers: {
-            "X-Dashboard-Password": password
-          }
-        }
-      );
+            "X-Dashboard-Password": password,
+            "Accept": "application/json"
+          },
+          cache: "no-store"
+        });
+      } catch (error) {
+        connected = false;
+  
+        throw new Error(
+          "Kan geen verbinding maken met de Worker. " +
+          "Controleer de Worker-URL, CORS-instellingen en netwerkverbinding."
+        );
+      }
   
       let data;
   
       try {
         data = await response.json();
       } catch {
-        throw new Error("De Worker stuurde geen geldige JSON terug.");
+        connected = false;
+        throw new Error(
+          `De Worker stuurde geen geldige JSON terug (HTTP ${response.status}).`
+        );
       }
   
       if (!response.ok) {
+        connected = false;
+  
         if (response.status === 401 || response.status === 403) {
           throw new Error("Wachtwoord onjuist of geen toegang.");
         }
   
         throw new Error(
-          `API-fout (${response.status}). ${data?.error || ""}`
+          `API-fout (${response.status}). ${data?.error || data?.message || ""}`
         );
       }
   
-      if (
-        data?.success !== true ||
-        !Array.isArray(data.activities)
-      ) {
+      if (data?.success !== true || !Array.isArray(data.activities)) {
+        connected = false;
+  
         throw new Error(
           "Onverwacht API-formaat. Controleer de Worker-response."
         );
@@ -49,19 +63,22 @@ window.DashboardAPI = (() => {
   
       return {
         activities,
-        days: data.days ?? 180,
+        days: data.days ?? null,
         count: data.count ?? activities.length
       };
     }
   
     return {
       workerUrl: WORKER_URL,
+  
       get activities() {
         return activities;
       },
+  
       get connected() {
         return connected;
       },
+  
       sync
     };
   })();
