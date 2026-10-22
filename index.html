@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Mijn trainingsdashboard</title>
+  <style>
+    :root{color-scheme:dark;--bg:#0b1020;--panel:#141c2f;--line:#27334d;--muted:#9eabc3;--text:#edf2ff;--accent:#8bc5ff}
+    *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:15px/1.5 system-ui,-apple-system,Segoe UI,sans-serif}
+    main{max-width:1180px;margin:auto;padding:28px 18px 60px}header{display:flex;justify-content:space-between;gap:16px;align-items:center;flex-wrap:wrap;margin-bottom:24px}
+    h1{font-size:clamp(1.6rem,4vw,2.3rem);margin:0}h2{font-size:1.05rem;margin:0 0 14px}.muted{color:var(--muted)}
+    .controls,.panel,.metric{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:16px}
+    .controls{display:flex;gap:10px;align-items:end;flex-wrap:wrap;margin-bottom:18px}.field{display:flex;flex-direction:column;gap:5px;min-width:180px;flex:1}
+    input,button{font:inherit;border-radius:9px;padding:10px 12px;border:1px solid var(--line);background:#0d1425;color:var(--text)}button{cursor:pointer;background:#d7eaff;color:#10203a;font-weight:700;border:0}button:disabled{opacity:.5;cursor:wait}
+    .metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:14px}.metric .label{color:var(--muted);font-size:.85rem}.metric .value{font-size:1.65rem;font-weight:750;margin-top:5px}
+    .grid{display:grid;grid-template-columns:1.2fr 1fr;gap:14px}.panel{min-width:0}.wide{grid-column:1/-1}canvas{display:block;width:100%;height:260px}.status{min-height:24px;margin:6px 0 14px;color:var(--muted)}table{width:100%;border-collapse:collapse;font-size:.9rem}th,td{text-align:left;padding:10px 8px;border-bottom:1px solid var(--line)}th{color:var(--muted);font-weight:600}.table-wrap{overflow:auto}.notice{font-size:.88rem;color:var(--muted);margin-top:18px}
+    @media(max-width:760px){.metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.grid{grid-template-columns:1fr}.wide{grid-column:auto}.metric .value{font-size:1.35rem}}
+  </style>
+</head>
+<body><main>
+  <header><div><h1>Trainingsdashboard</h1><div class="muted">Persoonlijke analyse · Intervals.icu</div></div><div class="muted" id="lastUpdated">Nog niet gesynchroniseerd</div></header>
+  <section class="controls">
+    <label class="field">Beveiligingswachtwoord<input id="password" type="password" autocomplete="current-password" placeholder="Wachtwoord voor data-API"></label>
+    <label class="field">Worker-URL<input id="workerUrl" type="url" placeholder="https://jouw-worker.workers.dev"></label>
+    <button id="loadBtn">Synchroniseer</button>
+  </section>
+  <div id="status" class="status">Vul de URL van je beveiligde Worker en het wachtwoord in. Deze pagina slaat ze niet op.</div>
+  <section class="metrics">
+    <div class="metric"><div class="label">Activiteiten geladen</div><div class="value" id="activitiesCount">—</div></div>
+    <div class="metric"><div class="label">Trainingsuren (periode)</div><div class="value" id="hours">—</div></div>
+    <div class="metric"><div class="label">Gem. vermogen*</div><div class="value" id="avgPower">—</div></div>
+    <div class="metric"><div class="label">Gem. hartslag*</div><div class="value" id="avgHr">—</div></div>
+  </section>
+  <section class="grid">
+    <article class="panel"><h2>Dagelijkse trainingsduur</h2><canvas id="durationChart" width="800" height="300" aria-label="Grafiek trainingsduur"></canvas></article>
+    <article class="panel"><h2>Dagelijkse trainingsbelasting</h2><canvas id="loadChart" width="800" height="300" aria-label="Grafiek trainingsbelasting"></canvas><div class="muted">Gebruikt de TSS-waarde die de API per activiteit teruggeeft, indien beschikbaar.</div></article>
+    <article class="panel wide"><h2>Recente activiteiten</h2><div class="table-wrap"><table><thead><tr><th>Datum</th><th>Activiteit</th><th>Duur</th><th>Afstand</th><th>Vermogen</th><th>Hartslag</th><th>TSS</th></tr></thead><tbody id="activitiesTable"><tr><td colspan="7" class="muted">Nog geen data geladen.</td></tr></tbody></table></div></article>
+  </section>
+  <p class="notice">* Gemiddelden worden berekend over activiteiten waarvoor de API deze waarden aanlevert; dit is geen gewogen gemiddelde. Dit startdashboard gebruikt alleen samenvattingsgegevens, geen ruwe seconde-voor-seconde vermogensbestanden. De API-sleutel hoort uitsluitend als Worker-secret te worden ingesteld en nooit in deze HTML of GitHub te staan.</p>
+</main>
+<script>
+const $=id=>document.getElementById(id); let busy=false;
+function fmt(n,d=0){return Number.isFinite(Number(n))?Number(n).toLocaleString('nl-NL',{maximumFractionDigits:d}):'—'}
+function first(o,keys){for(const k of keys){if(o?.[k]!==undefined&&o[k]!==null&&o[k]!==''&&Number.isFinite(Number(o[k])))return Number(o[k])}return null}
+function dateOf(a){return (a.start_date_local||a.start_date||'').slice(0,10)}
+function draw(id,labels,values,color){const c=$(id),ctx=c.getContext('2d'),w=c.width,h=c.height;ctx.clearRect(0,0,w,h);ctx.font='13px system-ui';const pad={l:42,r:12,t:18,b:34},cw=w-pad.l-pad.r,ch=h-pad.t-pad.b;ctx.strokeStyle='#27334d';ctx.fillStyle='#9eabc3';ctx.lineWidth=1;
+ for(let i=0;i<=4;i++){let y=pad.t+ch*i/4;ctx.beginPath();ctx.moveTo(pad.l,y);ctx.lineTo(w-pad.r,y);ctx.stroke();ctx.fillText(fmt(Math.max(...values,1)*(4-i)/4),4,y+4)}
+ if(!values.length){ctx.fillText('Geen gegevens',pad.l+10,pad.t+30);return}const max=Math.max(...values,1),step=cw/values.length,bw=Math.max(2,step*.62);values.forEach((v,i)=>{const bh=Math.max(1,v/max*ch),x=pad.l+i*step+(step-bw)/2,y=pad.t+ch-bh;ctx.fillStyle=color;ctx.fillRect(x,y,bw,bh)});
+ const stride=Math.max(1,Math.ceil(labels.length/7));labels.forEach((l,i)=>{if(i%stride===0||i===labels.length-1){ctx.fillStyle='#9eabc3';ctx.fillText(l.slice(5),pad.l+i*step,pad.t+ch+23)}})}
+function duration(a){return first(a,['moving_time','elapsed_time','icu_moving_time'])||0}
+function render(activities){activities.sort((a,b)=>dateOf(a).localeCompare(dateOf(b)));$('activitiesCount').textContent=fmt(activities.length);$('hours').textContent=fmt(activities.reduce((s,a)=>s+duration(a),0)/3600,1);
+ const powers=activities.map(a=>first(a,['average_watts','icu_average_watts','avg_power'])).filter(v=>v!==null);$('avgPower').textContent=powers.length?fmt(powers.reduce((s,v)=>s+v,0)/powers.length)+' W':'—';
+ const hrs=activities.map(a=>first(a,['average_heartrate','average_hr','avg_hr'])).filter(v=>v!==null);$('avgHr').textContent=hrs.length?fmt(hrs.reduce((s,v)=>s+v,0)/hrs.length)+' bpm':'—';
+ const byDay={};activities.forEach(a=>{const d=dateOf(a);if(!d)return;byDay[d]??={secs:0,load:0};byDay[d].secs+=duration(a);byDay[d].load+=first(a,['icu_training_load','training_load','tss'])||0});const days=Object.keys(byDay).sort().slice(-42);draw('durationChart',days,days.map(d=>byDay[d].secs/3600),'#8bc5ff');draw('loadChart',days,days.map(d=>byDay[d].load),'#9ee6b3');
+ const rows=[...activities].reverse().slice(0,30);$('activitiesTable').innerHTML=rows.map(a=>{const p=first(a,['average_watts','icu_average_watts','avg_power']),hr=first(a,['average_heartrate','average_hr','avg_hr']),dist=first(a,['distance']);const secs=duration(a);const name=String(a.name||a.type||'Activiteit').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));return `<tr><td>${dateOf(a)||'—'}</td><td>${name}</td><td>${fmt(secs/60)} min</td><td>${dist===null?'—':fmt(dist/1000,1)+' km'}</td><td>${p===null?'—':fmt(p)+' W'}</td><td>${hr===null?'—':fmt(hr)+' bpm'}</td><td>${fmt(first(a,['icu_training_load','training_load','tss']))}</td></tr>`}).join('')||'<tr><td colspan="7">Geen activiteiten gevonden.</td></tr>';
+}
+async function sync(){if(busy)return;const url=$('workerUrl').value.trim().replace(/\/$/,'');const password=$('password').value;if(!url||!password){$('status').textContent='Vul zowel de Worker-URL als het wachtwoord in.';return}if(!/^https:\/\//i.test(url)){ $('status').textContent='Gebruik een HTTPS-URL.';return}busy=true;$('loadBtn').disabled=true;$('status').textContent='Gegevens ophalen…';try{const r=await fetch(url+'/api/activities?days=180',{headers:{'X-Dashboard-Password':password}});if(!r.ok)throw new Error(r.status===401?'Wachtwoord onjuist.':`API-fout (${r.status}).`);const data=await r.json();if(!Array.isArray(data))throw new Error('Onverwacht API-formaat.');render(data);$('lastUpdated').textContent='Gesynchroniseerd: '+new Date().toLocaleString('nl-NL');$('status').textContent=`${data.length} activiteiten geladen.`}catch(e){$('status').textContent='Synchronisatie mislukt: '+e.message+' Controleer Worker-configuratie en API-toegang.'}finally{busy=false;$('loadBtn').disabled=false}}
+$('loadBtn').addEventListener('click',sync);$('password').addEventListener('keydown',e=>{if(e.key==='Enter')sync()});
+</script></body></html>
